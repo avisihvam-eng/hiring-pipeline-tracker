@@ -498,26 +498,30 @@ function renderPanelForm(c) {
           </select>
         </div>
       </div>
-      <div class="form-section-label">Screening Panel</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="pf-screened1">Screened By #1</label>
-          <input type="text" id="pf-screened1" placeholder="e.g. Priya Mehta" value="${esc(c?.screened_by_1 || '')}">
-        </div>
-        <div class="form-group">
-          <label for="pf-screened2">Screened By #2</label>
-          <input type="text" id="pf-screened2" placeholder="e.g. Ravi Kumar" value="${esc(c?.screened_by_2 || '')}">
+      <div id="screening-section">
+        <div class="form-section-label">Screening Panel</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pf-screened1">Screened By #1</label>
+            <input type="text" id="pf-screened1" placeholder="e.g. Priya Mehta" value="${esc(c?.screened_by_1 || '')}">
+          </div>
+          <div class="form-group">
+            <label for="pf-screened2">Screened By #2</label>
+            <input type="text" id="pf-screened2" placeholder="e.g. Ravi Kumar" value="${esc(c?.screened_by_2 || '')}">
+          </div>
         </div>
       </div>
-      <div class="form-section-label">Interview Panel</div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="pf-interviewer1">Interviewer #1</label>
-          <input type="text" id="pf-interviewer1" placeholder="e.g. Amit Shah" value="${esc(c?.interviewed_by_1 || '')}">
-        </div>
-        <div class="form-group">
-          <label for="pf-interviewer2">Interviewer #2</label>
-          <input type="text" id="pf-interviewer2" placeholder="e.g. Sneha Rao" value="${esc(c?.interviewed_by_2 || '')}">
+      <div id="interview-section">
+        <div class="form-section-label">Interview Panel</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pf-interviewer1">Interviewer #1</label>
+            <input type="text" id="pf-interviewer1" placeholder="e.g. Amit Shah" value="${esc(c?.interviewed_by_1 || '')}">
+          </div>
+          <div class="form-group">
+            <label for="pf-interviewer2">Interviewer #2</label>
+            <input type="text" id="pf-interviewer2" placeholder="e.g. Sneha Rao" value="${esc(c?.interviewed_by_2 || '')}">
+          </div>
         </div>
       </div>
       <div class="form-group">
@@ -560,6 +564,26 @@ function renderPanelForm(c) {
     if (declineBtn) declineBtn.addEventListener('click', () => handleDecline(c));
     if (deleteBtn) deleteBtn.addEventListener('click', () => handleDelete(c));
     if (addNoteBtn) addNoteBtn.addEventListener('click', () => handleAddNote(c));
+  }
+
+  // Toggle screening/interview sections based on stage
+  togglePanelSections();
+  const stageSelect = $('#pf-stage');
+  if (stageSelect) {
+    stageSelect.addEventListener('change', togglePanelSections);
+  }
+}
+
+function togglePanelSections() {
+  const stage = $('#pf-stage')?.value || '';
+  const screeningSection = $('#screening-section');
+  const interviewSection = $('#interview-section');
+
+  if (screeningSection) {
+    screeningSection.style.display = (stage === 'Internal Screen') ? 'block' : 'none';
+  }
+  if (interviewSection) {
+    interviewSection.style.display = (['Round 1', 'Round 2', 'Round 3'].includes(stage)) ? 'block' : 'none';
   }
 }
 
