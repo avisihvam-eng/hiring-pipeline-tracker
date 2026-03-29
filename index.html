@@ -11,7 +11,7 @@
 <body>
 
   <!-- ========== SETUP SCREEN (hidden — credentials are built-in) ========== -->
-  <div id="setup-screen" style="display:none;">
+  <div id="setup-screen" class="panel-overlay">
     <div class="setup-card">
       <div class="setup-icon">🔗</div>
       <h1>Connect Supabase</h1>
@@ -47,8 +47,7 @@
         <button class="btn btn-primary btn-sm" id="btn-add">
           ＋ Add Candidate
         </button>
-        <!-- settings removed — credentials are built-in -->
-        <div class="settings-dropdown" style="display:none;">
+        <div class="settings-dropdown">
           <button class="btn-icon" id="btn-settings" title="Settings">⚙️</button>
           <div class="settings-menu" id="settings-menu">
             <button id="btn-reset-creds" class="danger">🔓 Reset Credentials</button>

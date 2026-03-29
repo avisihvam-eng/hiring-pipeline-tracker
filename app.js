@@ -9,9 +9,7 @@ const PAGE_SIZE = 25;
 const LS_URL_KEY = 'hp_supabase_url';
 const LS_KEY_KEY = 'hp_supabase_key';
 
-// --- Built-in Supabase Credentials (anon key is public-safe with RLS) ---
-const SUPABASE_URL = 'https://urfefzdzewvmcjmrcozf.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7uS-gF537CCBmTwIRDPpng_MREGRIJ9';
+
 
 // --- State ---
 const state = {
@@ -73,8 +71,15 @@ const dom = {
 // INIT
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
-  // Auto-connect with built-in credentials — no setup screen needed
-  initSupabase(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const savedUrl = localStorage.getItem(LS_URL_KEY);
+  const savedKey = localStorage.getItem(LS_KEY_KEY);
+
+  if (savedUrl && savedKey) {
+    initSupabase(savedUrl, savedKey);
+  } else {
+    showSetupScreen();
+  }
+  
   bindGlobalEvents();
 });
 
