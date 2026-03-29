@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hiring Pipeline — Track Every Candidate</title>
+  <meta name="description" content="A single-screen hiring pipeline tracker. See every candidate's stage, status, and history at a glance.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
+</head>
+<body>
+
+  <!-- ========== SETUP SCREEN (hidden — credentials are built-in) ========== -->
+  <div id="setup-screen" style="display:none;">
+    <div class="setup-card">
+      <div class="setup-icon">🔗</div>
+      <h1>Connect Supabase</h1>
+      <p>Paste your Supabase project credentials to get started. These are stored only in your browser.</p>
+      <div class="form-group">
+        <label for="setup-url">Project URL</label>
+        <input type="url" id="setup-url" placeholder="https://xxxxx.supabase.co">
+      </div>
+      <div class="form-group">
+        <label for="setup-key">Anon Key</label>
+        <input type="text" id="setup-key" placeholder="eyJhbGciOiJIUzI1NiIs...">
+      </div>
+      <div class="setup-error" id="setup-error"></div>
+      <button class="btn btn-primary" id="setup-connect" style="width:100%; justify-content:center; margin-top:8px;">
+        Connect & Launch
+      </button>
+    </div>
+  </div>
+
+  <!-- ========== MAIN APP ========== -->
+  <div id="app">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="app-header-left">
+        <h1>🎯 Hiring Pipeline</h1>
+        <p>Track every candidate from screen to offer</p>
+      </div>
+      <div class="app-header-right">
+        <button class="btn btn-secondary btn-sm" id="btn-export" title="Export filtered data to CSV">
+          📥 Export CSV
+        </button>
+        <button class="btn btn-primary btn-sm" id="btn-add">
+          ＋ Add Candidate
+        </button>
+        <!-- settings removed — credentials are built-in -->
+        <div class="settings-dropdown" style="display:none;">
+          <button class="btn-icon" id="btn-settings" title="Settings">⚙️</button>
+          <div class="settings-menu" id="settings-menu">
+            <button id="btn-reset-creds" class="danger">🔓 Reset Credentials</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Dashboard Strip -->
+    <section class="dashboard-strip" id="dashboard-strip">
+      <!-- Cards injected by JS -->
+    </section>
+
+    <!-- Filter Bar -->
+    <section class="filter-bar" id="filter-bar">
+      <div class="search-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="filter-search" placeholder="Search name, role, or client…">
+      </div>
+      <select id="filter-client"><option value="">All Clients</option></select>
+      <select id="filter-stage"><option value="">All Stages</option></select>
+      <select id="filter-status">
+        <option value="">All Statuses</option>
+        <option value="Pending">Pending</option>
+        <option value="Cleared">Cleared</option>
+        <option value="Rejected">Rejected</option>
+      </select>
+      <span class="active-filters-count" id="active-filters-count"></span>
+      <button class="btn btn-ghost btn-sm" id="btn-clear-filters">Clear Filters</button>
+    </section>
+
+    <!-- Table -->
+    <section class="table-wrapper" id="table-wrapper">
+      <table class="pipeline-table" id="pipeline-table">
+        <thead>
+          <tr>
+            <th>Full Name</th>
+            <th>Location</th>
+            <th>Role</th>
+            <th>Client</th>
+            <th>Current Stage</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th>Notes</th>
+            <th style="width:60px;"></th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <!-- Rows injected by JS -->
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pagination">
+      <button class="btn btn-secondary btn-sm" id="btn-prev">← Prev</button>
+      <span class="page-info" id="page-info"></span>
+      <button class="btn btn-secondary btn-sm" id="btn-next">Next →</button>
+    </div>
+
+  </div>
+
+  <!-- ========== PANEL OVERLAY ========== -->
+  <div class="panel-overlay" id="panel-overlay"></div>
+
+  <!-- ========== SLIDE-IN PANEL ========== -->
+  <aside class="slide-panel" id="slide-panel">
+    <div class="panel-header">
+      <h2 id="panel-title">Add Candidate</h2>
+      <button class="btn-icon" id="panel-close">✕</button>
+    </div>
+    <div class="panel-body" id="panel-body">
+      <!-- Content injected by JS -->
+    </div>
+    <div class="panel-footer" id="panel-footer">
+      <button class="btn btn-secondary" id="panel-cancel">Cancel</button>
+      <button class="btn btn-primary" id="panel-save">Save</button>
+    </div>
+  </aside>
+
+  <!-- ========== CONFIRM DIALOG ========== -->
+  <div class="confirm-overlay" id="confirm-overlay">
+    <div class="confirm-dialog">
+      <h3 id="confirm-title">Are you sure?</h3>
+      <p id="confirm-message">This action cannot be undone.</p>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary btn-sm" id="confirm-cancel">Cancel</button>
+        <button class="btn btn-danger btn-sm" id="confirm-yes">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== TOAST CONTAINER ========== -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Supabase CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="app.js"></script>
+</body>
+</html>
