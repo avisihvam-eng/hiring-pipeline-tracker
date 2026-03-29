@@ -545,6 +545,29 @@ a {
   white-space: nowrap;
 }
 
+.pipeline-table .td-screened,
+.pipeline-table .td-interviewed {
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+/* Form section labels */
+.form-section-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 8px;
+  margin-bottom: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
 /* Status tags */
 .status-tag {
   display: inline-flex;

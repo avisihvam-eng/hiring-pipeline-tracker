@@ -347,7 +347,10 @@ function renderTable() {
     return;
   }
 
-  dom.tableBody.innerHTML = page.map(c => `
+  dom.tableBody.innerHTML = page.map(c => {
+    const screeners = [c.screened_by_1, c.screened_by_2].filter(Boolean).join(', ');
+    const interviewers = [c.interviewed_by_1, c.interviewed_by_2].filter(Boolean).join(', ');
+    return `
     <tr data-id="${c.id}" class="candidate-row">
       <td>${esc(c.full_name)}</td>
       <td>${esc(c.location || '—')}</td>
@@ -364,6 +367,8 @@ function renderTable() {
           ${esc(c.stage_status || '—')}
         </span>
       </td>
+      <td class="td-screened" title="${esc(screeners)}">${esc(screeners || '—')}</td>
+      <td class="td-interviewed" title="${esc(interviewers)}">${esc(interviewers || '—')}</td>
       <td class="td-date">${formatDate(c.date)}</td>
       <td class="td-notes" title="${esc(c.notes || '')}">${esc(c.notes || '—')}</td>
       <td>
@@ -372,7 +377,8 @@ function renderTable() {
         </div>
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
   // Row click → edit
   dom.tableBody.querySelectorAll('.candidate-row').forEach(row => {
@@ -392,7 +398,7 @@ function renderTable() {
 
 function showTableLoading() {
   dom.tableBody.innerHTML = `
-    <tr><td colspan="9">
+    <tr><td colspan="11">
       <div class="table-loading">
         <div class="loading-spinner"></div>
         Loading candidates…
@@ -402,7 +408,7 @@ function showTableLoading() {
 
 function showTableEmpty(msg, sub) {
   dom.tableBody.innerHTML = `
-    <tr><td colspan="9">
+    <tr><td colspan="11">
       <div class="table-empty">
         <div class="empty-icon">📋</div>
         <p>${msg || 'No candidates yet'}</p>
@@ -490,6 +496,28 @@ function renderPanelForm(c) {
           <select id="pf-status">
             ${STATUSES.map(s => `<option value="${s}" ${c?.stage_status === s ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
+        </div>
+      </div>
+      <div class="form-section-label">Screening Panel</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pf-screened1">Screened By #1</label>
+          <input type="text" id="pf-screened1" placeholder="e.g. Priya Mehta" value="${esc(c?.screened_by_1 || '')}">
+        </div>
+        <div class="form-group">
+          <label for="pf-screened2">Screened By #2</label>
+          <input type="text" id="pf-screened2" placeholder="e.g. Ravi Kumar" value="${esc(c?.screened_by_2 || '')}">
+        </div>
+      </div>
+      <div class="form-section-label">Interview Panel</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pf-interviewer1">Interviewer #1</label>
+          <input type="text" id="pf-interviewer1" placeholder="e.g. Amit Shah" value="${esc(c?.interviewed_by_1 || '')}">
+        </div>
+        <div class="form-group">
+          <label for="pf-interviewer2">Interviewer #2</label>
+          <input type="text" id="pf-interviewer2" placeholder="e.g. Sneha Rao" value="${esc(c?.interviewed_by_2 || '')}">
         </div>
       </div>
       <div class="form-group">
@@ -593,6 +621,10 @@ async function handleSave() {
     client: $('#pf-client')?.value?.trim() || null,
     current_stage: $('#pf-stage')?.value || 'Internal Screen',
     stage_status: $('#pf-status')?.value || 'Pending',
+    screened_by_1: $('#pf-screened1')?.value?.trim() || null,
+    screened_by_2: $('#pf-screened2')?.value?.trim() || null,
+    interviewed_by_1: $('#pf-interviewer1')?.value?.trim() || null,
+    interviewed_by_2: $('#pf-interviewer2')?.value?.trim() || null,
     date: $('#pf-date')?.value || null,
     notes: $('#pf-notes')?.value?.trim() || null,
   };
@@ -758,7 +790,7 @@ function exportCSV() {
     return;
   }
 
-  const headers = ['Name', 'Location', 'Role', 'Client', 'Stage', 'Stage Status', 'Date', 'Notes'];
+  const headers = ['Name', 'Location', 'Role', 'Client', 'Stage', 'Stage Status', 'Screened By 1', 'Screened By 2', 'Interviewer 1', 'Interviewer 2', 'Date', 'Notes'];
   const csvRows = [headers.join(',')];
 
   rows.forEach(c => {
@@ -769,6 +801,10 @@ function exportCSV() {
       csvEscape(c.client),
       csvEscape(c.current_stage),
       csvEscape(c.stage_status),
+      csvEscape(c.screened_by_1),
+      csvEscape(c.screened_by_2),
+      csvEscape(c.interviewed_by_1),
+      csvEscape(c.interviewed_by_2),
       csvEscape(c.date),
       csvEscape(c.notes),
     ].join(','));
