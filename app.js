@@ -1,19 +1,22 @@
 /* =========================================
-   Hiring Pipeline Tracker — Application Logic
+   Hiring Pipeline Tracker — Production App
    ========================================= */
+
+// --- Supabase Config (anon key is public by design; RLS enforces auth) ---
+const SUPABASE_URL = 'https://urfefzdzewvmcjmrcozf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVyZmVmemR6ZXd2bWNqbXJjb3pmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ3MDU5ODQsImV4cCI6MjA5MDI4MTk4NH0.wmZbxwk0KZsiKlvr0HCyUM2p5hrnwwqItaf9bZ5rcpo';
 
 // --- Constants ---
 const STAGES = ['Internal Screen', 'Round 1', 'Round 2', 'Round 3', 'Offer', 'Joined'];
 const STATUSES = ['Pending', 'Cleared', 'Rejected'];
 const PAGE_SIZE = 25;
-const LS_URL_KEY = 'hp_supabase_url';
-const LS_KEY_KEY = 'hp_supabase_key';
 
-
+// --- Single Supabase Client Instance (§9a) ---
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // --- State ---
 const state = {
-  db: null,
+  user: null,
   candidates: [],
   filteredCandidates: [],
   currentPage: 1,
@@ -23,187 +26,374 @@ const state = {
   history: [],
 };
 
-// --- DOM Refs ---
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => document.querySelectorAll(sel);
+// --- Rate Limit (§7) ---
+const rateLimit = { attempts: 0, resetAt: 0 };
 
-const dom = {
-  setupScreen: $('#setup-screen'),
-  setupUrl: $('#setup-url'),
-  setupKey: $('#setup-key'),
-  setupConnect: $('#setup-connect'),
-  setupError: $('#setup-error'),
-  app: $('#app'),
-  dashboardStrip: $('#dashboard-strip'),
-  filterSearch: $('#filter-search'),
-  filterClient: $('#filter-client'),
-  filterStage: $('#filter-stage'),
-  filterStatus: $('#filter-status'),
-  activeFiltersCount: $('#active-filters-count'),
-  btnClearFilters: $('#btn-clear-filters'),
-  tableBody: $('#table-body'),
-  pagination: $('#pagination'),
-  pageInfo: $('#page-info'),
-  btnPrev: $('#btn-prev'),
-  btnNext: $('#btn-next'),
-  btnAdd: $('#btn-add'),
-  btnExport: $('#btn-export'),
-  btnSettings: $('#btn-settings'),
-  settingsMenu: $('#settings-menu'),
-  btnResetCreds: $('#btn-reset-creds'),
-  panelOverlay: $('#panel-overlay'),
-  slidePanel: $('#slide-panel'),
-  panelTitle: $('#panel-title'),
-  panelBody: $('#panel-body'),
-  panelFooter: $('#panel-footer'),
-  panelClose: $('#panel-close'),
-  panelCancel: $('#panel-cancel'),
-  panelSave: $('#panel-save'),
-  confirmOverlay: $('#confirm-overlay'),
-  confirmTitle: $('#confirm-title'),
-  confirmMessage: $('#confirm-message'),
-  confirmCancel: $('#confirm-cancel'),
-  confirmYes: $('#confirm-yes'),
-  toastContainer: $('#toast-container'),
-};
+// --- DOM Refs (lazy — populated after DOMContentLoaded) ---
+let dom = {};
 
 // =========================================
 // INIT
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
-  const savedUrl = localStorage.getItem(LS_URL_KEY);
-  const savedKey = localStorage.getItem(LS_KEY_KEY);
+  dom = {
+    loginScreen: $('#login-screen'),
+    loginEmail: $('#login-email'),
+    loginSubmit: $('#login-submit'),
+    loginError: $('#login-error'),
+    loginSuccess: $('#login-success'),
+    loginClose: $('#login-close'),
+    app: $('#app'),
+    userGreeting: $('#user-greeting'),
+    dashboardStrip: $('#dashboard-strip'),
+    filterSearch: $('#filter-search'),
+    filterClient: $('#filter-client'),
+    filterStage: $('#filter-stage'),
+    filterStatus: $('#filter-status'),
+    activeFiltersCount: $('#active-filters-count'),
+    btnClearFilters: $('#btn-clear-filters'),
+    tableBody: $('#table-body'),
+    pagination: $('#pagination'),
+    pageInfo: $('#page-info'),
+    btnPrev: $('#btn-prev'),
+    btnNext: $('#btn-next'),
+    btnAdd: $('#btn-add'),
+    btnExport: $('#btn-export'),
+    btnActivity: $('#btn-activity'),
+    btnLogout: $('#btn-logout'),
+    btnSignIn: $('#btn-signin'),
+    ccUserArea: $('#cc-user-area'),
+    ccAvatar: $('#cc-avatar'),
+    ccUsername: $('#cc-username'),
+    activitySection: $('#activity-log-section'),
+    activityBody: $('#activity-log-body'),
+    btnCloseActivity: $('#btn-close-activity'),
+    panelOverlay: $('#panel-overlay'),
+    slidePanel: $('#slide-panel'),
+    panelTitle: $('#panel-title'),
+    panelBody: $('#panel-body'),
+    panelFooter: $('#panel-footer'),
+    panelClose: $('#panel-close'),
+    panelCancel: $('#panel-cancel'),
+    panelSave: $('#panel-save'),
+    confirmOverlay: $('#confirm-overlay'),
+    confirmTitle: $('#confirm-title'),
+    confirmMessage: $('#confirm-message'),
+    confirmCancel: $('#confirm-cancel'),
+    confirmYes: $('#confirm-yes'),
+    toastContainer: $('#toast-container'),
+  };
 
-  if (savedUrl && savedKey) {
-    initSupabase(savedUrl, savedKey);
-  } else {
-    showSetupScreen();
-  }
-  
+  // Listen for auth state changes (§1, §5)
+  db.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_IN' && session) {
+      state.user = session.user;
+      updateAuthUI();
+      loadCandidates(); // Reload with auth context
+    } else if (event === 'SIGNED_OUT') {
+      state.user = null;
+      updateAuthUI();
+    }
+  });
+
+  // Always show the app immediately — login is optional
+  checkSession();
   bindGlobalEvents();
 });
 
-function showSetupScreen() {
-  dom.setupScreen.style.display = 'flex';
-  dom.app.classList.remove('visible');
-}
-
-function hideSetupScreen() {
-  dom.setupScreen.style.display = 'none';
-  dom.app.classList.add('visible');
-}
-
-// =========================================
-// SUPABASE
-// =========================================
-function initSupabase(url, key) {
+async function checkSession() {
   try {
-    state.db = supabase.createClient(url, key);
-    localStorage.setItem(LS_URL_KEY, url);
-    localStorage.setItem(LS_KEY_KEY, key);
-    hideSetupScreen();
-    loadCandidates();
-  } catch (e) {
-    showSetupError('Failed to initialize Supabase client.');
+    const { data: { session } } = await db.auth.getSession();
+    if (session) {
+      state.user = session.user;
+    }
+  } catch { /* ignore */ }
+  // Always show the app — data is publicly readable
+  showApp();
+}
+
+function showLogin() {
+  dom.loginScreen.classList.remove('hidden');
+}
+
+function hideLogin() {
+  dom.loginScreen.classList.add('hidden');
+}
+
+function showApp() {
+  dom.loginScreen.classList.add('hidden');
+  dom.app.classList.add('visible');
+  updateAuthUI();
+  loadCandidates();
+}
+
+function updateAuthUI() {
+  if (state.user) {
+    const email = state.user.email || '';
+    const initials = email.split('@')[0].substring(0, 2).toUpperCase();
+    dom.userGreeting.textContent = `Signed in as ${email}`;
+    dom.btnSignIn.style.display = 'none';
+    dom.ccUserArea.style.display = 'flex';
+    dom.ccAvatar.textContent = initials;
+    dom.ccUsername.textContent = email.split('@')[0];
+  } else {
+    dom.userGreeting.textContent = 'Track every candidate from screen to offer';
+    dom.btnSignIn.style.display = '';
+    dom.ccUserArea.style.display = 'none';
+    dom.ccAvatar.textContent = '';
+    dom.ccUsername.textContent = '';
   }
 }
 
-function showSetupError(msg) {
-  dom.setupError.textContent = msg;
-  dom.setupError.classList.add('visible');
+function requireAuth() {
+  if (state.user) return true;
+  toast('Please sign in to make changes', 'info');
+  showLogin();
+  return false;
 }
 
-async function loadCandidates() {
-  showTableLoading();
-  const { data, error } = await state.db
-    .from('hiring_pipeline')
-    .select('*')
-    .order('created_at', { ascending: false });
+// =========================================
+// AUTH — Magic Link (§1)
+// =========================================
+async function handleLogin() {
+  const email = dom.loginEmail.value.trim().toLowerCase();
+  hideLoginMessages();
 
-  if (error) {
-    toast('Failed to load candidates: ' + error.message, 'error');
-    showTableEmpty('Could not load data. Check your Supabase connection.');
+  if (!email || !email.includes('@')) {
+    showLoginError('Please enter a valid email address.');
     return;
   }
-  state.candidates = data || [];
-  populateFilterDropdowns();
-  applyFilters();
-  renderDashboard();
+
+  // Rate limit check (§7)
+  const now = Date.now();
+  if (now < rateLimit.resetAt && rateLimit.attempts >= 3) {
+    const secsLeft = Math.ceil((rateLimit.resetAt - now) / 1000);
+    showLoginError(`Too many attempts. Please wait ${secsLeft} seconds.`);
+    return;
+  }
+  if (now >= rateLimit.resetAt) {
+    rateLimit.attempts = 0;
+    rateLimit.resetAt = now + 60000;
+  }
+  rateLimit.attempts++;
+
+  // Check whitelist
+  try {
+    const { data, error } = await db.from('allowed_users').select('email').eq('email', email).maybeSingle();
+    if (error || !data) {
+      showLoginError('This email is not authorized. Contact your admin.');
+      return;
+    }
+  } catch {
+    showLoginError('Something went wrong. Please try again.');
+    return;
+  }
+
+  // Send magic link
+  dom.loginSubmit.disabled = true;
+  dom.loginSubmit.innerHTML = '<span class="loading-spinner"></span>';
+
+  try {
+    const { error } = await db.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: window.location.origin }
+    });
+
+    if (error) {
+      showLoginError('Could not send the sign-in link. Please try again.');
+    } else {
+      showLoginSuccess('✓ Magic link sent! Check your inbox.');
+    }
+  } catch {
+    showLoginError('Something went wrong. Please try again.');
+  }
+
+  dom.loginSubmit.disabled = false;
+  dom.loginSubmit.textContent = 'Send Magic Link';
+}
+
+async function handleLogout() {
+  try {
+    await db.auth.signOut();
+  } catch { /* ignore */ }
+  state.user = null;
+  updateAuthUI();
+  toast('Logged out', 'info');
+}
+
+function showLoginError(msg) {
+  dom.loginError.textContent = msg;
+  dom.loginError.classList.add('visible');
+}
+
+function showLoginSuccess(msg) {
+  dom.loginSuccess.textContent = msg;
+  dom.loginSuccess.classList.add('visible');
+}
+
+function hideLoginMessages() {
+  dom.loginError.textContent = '';
+  dom.loginError.classList.remove('visible');
+  dom.loginSuccess.textContent = '';
+  dom.loginSuccess.classList.remove('visible');
+}
+
+// =========================================
+// SUPABASE DATA (§5 — all wrapped in try/catch)
+// =========================================
+async function loadCandidates() {
+  showTableLoading();
+  try {
+    const { data, error } = await db
+      .from('hiring_pipeline')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    state.candidates = data || [];
+    populateFilterDropdowns();
+    applyFilters();
+    renderDashboard();
+  } catch {
+    toast('Something went wrong. Please try again.', 'error');
+    showTableEmpty('Could not load data. Please refresh the page.');
+  }
 }
 
 async function loadHistory(candidateId) {
-  const { data, error } = await state.db
-    .from('pipeline_history')
-    .select('*')
-    .eq('candidate_id', candidateId)
-    .order('timestamp', { ascending: true });
+  try {
+    const { data, error } = await db
+      .from('pipeline_history')
+      .select('*')
+      .eq('candidate_id', candidateId)
+      .order('timestamp', { ascending: true });
 
-  if (error) {
-    toast('Failed to load history', 'error');
+    if (error) throw error;
+    return data || [];
+  } catch {
+    toast('Something went wrong. Please try again.', 'error');
     return [];
   }
-  return data || [];
 }
 
 async function insertCandidate(record) {
-  const { data, error } = await state.db
-    .from('hiring_pipeline')
-    .insert([record])
-    .select()
-    .single();
+  try {
+    const { data, error } = await db
+      .from('hiring_pipeline')
+      .insert([record])
+      .select()
+      .single();
 
-  if (error) {
-    toast('Failed to add candidate: ' + error.message, 'error');
+    if (error) throw error;
+
+    await insertHistory({
+      candidate_id: data.id,
+      stage: data.current_stage,
+      status: data.stage_status,
+      note: 'Candidate added to pipeline',
+    });
+
+    await logAudit('added', data.full_name);
+    return data;
+  } catch {
+    toast('Something went wrong. Please try again.', 'error');
     return null;
   }
-
-  // Insert initial history
-  await insertHistory({
-    candidate_id: data.id,
-    stage: data.current_stage,
-    status: data.stage_status,
-    note: 'Candidate added to pipeline',
-  });
-
-  return data;
 }
 
 async function updateCandidate(id, updates) {
-  const { data, error } = await state.db
-    .from('hiring_pipeline')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+  try {
+    const { data, error } = await db
+      .from('hiring_pipeline')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
 
-  if (error) {
-    toast('Failed to update candidate: ' + error.message, 'error');
+    if (error) throw error;
+    await logAudit('updated', data.full_name);
+    return data;
+  } catch {
+    toast('Something went wrong. Please try again.', 'error');
     return null;
   }
-  return data;
 }
 
 async function deleteCandidate(id) {
-  const { error } = await state.db
-    .from('hiring_pipeline')
-    .delete()
-    .eq('id', id);
+  try {
+    // Get name before deleting for audit
+    const candidate = state.candidates.find(c => c.id === id);
+    const { error } = await db
+      .from('hiring_pipeline')
+      .delete()
+      .eq('id', id);
 
-  if (error) {
-    toast('Failed to delete candidate: ' + error.message, 'error');
+    if (error) throw error;
+    if (candidate) await logAudit('deleted', candidate.full_name);
+    return true;
+  } catch {
+    toast('Something went wrong. Please try again.', 'error');
     return false;
   }
-  return true;
 }
 
 async function insertHistory(entry) {
-  const { error } = await state.db
-    .from('pipeline_history')
-    .insert([entry]);
+  try {
+    await db.from('pipeline_history').insert([entry]);
+  } catch { /* non-critical */ }
+}
 
-  if (error) {
-    console.error('History insert failed:', error.message);
+// =========================================
+// AUDIT LOG (§3)
+// =========================================
+async function logAudit(action, candidateName) {
+  try {
+    await db.from('audit_log').insert([{
+      user_email: state.user?.email || 'unknown',
+      action,
+      candidate_name: candidateName,
+    }]);
+  } catch { /* non-critical, don't block UX */ }
+}
+
+async function loadAuditLog() {
+  try {
+    const { data, error } = await db
+      .from('audit_log')
+      .select('*')
+      .order('changed_at', { ascending: false })
+      .limit(50);
+
+    if (error) throw error;
+    renderAuditLog(data || []);
+  } catch {
+    dom.activityBody.innerHTML = '<p style="color:var(--text-muted); padding:20px;">Could not load activity log.</p>';
   }
+}
+
+function renderAuditLog(entries) {
+  if (entries.length === 0) {
+    dom.activityBody.innerHTML = '<p style="color:var(--text-muted); padding:20px;">No activity recorded yet.</p>';
+    return;
+  }
+
+  dom.activityBody.innerHTML = `
+    <table class="activity-log-table">
+      <thead><tr>
+        <th>User</th><th>Action</th><th>Candidate</th><th>When</th>
+      </tr></thead>
+      <tbody>
+        ${entries.map(e => `
+          <tr>
+            <td>${esc(e.user_email)}</td>
+            <td><span class="action-tag ${e.action}">${esc(e.action)}</span></td>
+            <td>${esc(e.candidate_name)}</td>
+            <td>${formatTimestamp(e.changed_at)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 // =========================================
@@ -232,16 +422,10 @@ function renderDashboard() {
     </div>
   `).join('');
 
-  // Click handlers
   dom.dashboardStrip.querySelectorAll('.dash-card').forEach(card => {
     card.addEventListener('click', () => {
       const key = card.dataset.stage;
-      if (state.dashboardStageFilter === key) {
-        state.dashboardStageFilter = null; // toggle off
-      } else {
-        state.dashboardStageFilter = key;
-      }
-      // Clear stage & status dropdown filters when using dashboard
+      state.dashboardStageFilter = state.dashboardStageFilter === key ? null : key;
       dom.filterStage.value = '';
       dom.filterStatus.value = '';
       state.filters.stage = '';
@@ -253,15 +437,13 @@ function renderDashboard() {
 }
 
 // =========================================
-// FILTERS
+// FILTERS (§9b — local filtering, no Supabase calls)
 // =========================================
 function populateFilterDropdowns() {
-  // Clients
   const clients = [...new Set(state.candidates.map(c => c.client).filter(Boolean))].sort();
   dom.filterClient.innerHTML = '<option value="">All Clients</option>' +
     clients.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
 
-  // Stages
   dom.filterStage.innerHTML = '<option value="">All Stages</option>' +
     STAGES.map(s => `<option value="${s}">${s}</option>`).join('') +
     '<option value="Declined">Declined</option>';
@@ -270,7 +452,6 @@ function populateFilterDropdowns() {
 function applyFilters() {
   let list = [...state.candidates];
 
-  // Dashboard stage filter
   if (state.dashboardStageFilter) {
     if (state.dashboardStageFilter === 'total') {
       list = list.filter(c => c.current_stage !== 'Joined' && c.current_stage !== 'Declined');
@@ -281,7 +462,6 @@ function applyFilters() {
     }
   }
 
-  // Text search
   const q = state.filters.search.toLowerCase().trim();
   if (q) {
     list = list.filter(c =>
@@ -291,20 +471,9 @@ function applyFilters() {
     );
   }
 
-  // Client filter
-  if (state.filters.client) {
-    list = list.filter(c => c.client === state.filters.client);
-  }
-
-  // Stage filter
-  if (state.filters.stage) {
-    list = list.filter(c => c.current_stage === state.filters.stage);
-  }
-
-  // Status filter
-  if (state.filters.status) {
-    list = list.filter(c => c.stage_status === state.filters.status);
-  }
+  if (state.filters.client) list = list.filter(c => c.client === state.filters.client);
+  if (state.filters.stage) list = list.filter(c => c.current_stage === state.filters.stage);
+  if (state.filters.status) list = list.filter(c => c.stage_status === state.filters.status);
 
   state.filteredCandidates = list;
   state.currentPage = 1;
@@ -385,7 +554,6 @@ function renderTable() {
   `;
   }).join('');
 
-  // Row click → edit
   dom.tableBody.querySelectorAll('.candidate-row').forEach(row => {
     row.addEventListener('click', (e) => {
       if (e.target.closest('.btn-edit-row')) return;
@@ -432,7 +600,6 @@ function renderPagination() {
   dom.pageInfo.innerHTML = `Page <span>${state.currentPage}</span> of <span>${totalPages}</span> · ${total} candidate${total !== 1 ? 's' : ''}`;
   dom.btnPrev.disabled = state.currentPage <= 1;
   dom.btnNext.disabled = state.currentPage >= totalPages;
-
   dom.pagination.style.display = total > 0 ? 'flex' : 'none';
 }
 
@@ -453,8 +620,6 @@ async function openEditPanel(id) {
 
   state.editingCandidate = candidate;
   dom.panelTitle.textContent = 'Edit Candidate';
-
-  // Load history
   state.history = await loadHistory(id);
   renderPanelForm(candidate);
   dom.panelFooter.style.display = 'flex';
@@ -469,38 +634,43 @@ function renderPanelForm(c) {
   const isDeclined = isEdit && c.current_stage === 'Declined';
 
   dom.panelBody.innerHTML = `
-    <form class="panel-form" id="panel-form">
+    <form class="panel-form" id="panel-form" novalidate>
       <div class="form-group">
         <label class="form-required" for="pf-name">Full Name</label>
-        <input type="text" id="pf-name" placeholder="e.g. Rahul Sharma" value="${esc(c?.full_name || '')}" required>
+        <input type="text" id="pf-name" placeholder="e.g. Rahul Sharma" value="${esc(c?.full_name || '')}" maxlength="100" required>
+        <span class="field-error" id="err-name"></span>
       </div>
       <div class="form-row">
         <div class="form-group">
           <label for="pf-location">Location</label>
-          <input type="text" id="pf-location" placeholder="e.g. Bangalore" value="${esc(c?.location || '')}">
+          <input type="text" id="pf-location" placeholder="e.g. Bangalore" value="${esc(c?.location || '')}" maxlength="100">
         </div>
         <div class="form-group">
-          <label for="pf-client">Client</label>
-          <input type="text" id="pf-client" placeholder="e.g. WAB" value="${esc(c?.client || '')}">
+          <label class="form-required" for="pf-client">Client</label>
+          <input type="text" id="pf-client" placeholder="e.g. WAB" value="${esc(c?.client || '')}" maxlength="100">
+          <span class="field-error" id="err-client"></span>
         </div>
       </div>
       <div class="form-group">
-        <label for="pf-role">Role</label>
-        <input type="text" id="pf-role" placeholder="e.g. Frontend Developer" value="${esc(c?.role || '')}">
+        <label class="form-required" for="pf-role">Role</label>
+        <input type="text" id="pf-role" placeholder="e.g. Frontend Developer" value="${esc(c?.role || '')}" maxlength="100">
+        <span class="field-error" id="err-role"></span>
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label for="pf-stage">Current Stage</label>
+          <label class="form-required" for="pf-stage">Current Stage</label>
           <select id="pf-stage">
             ${STAGES.map(s => `<option value="${s}" ${c?.current_stage === s ? 'selected' : ''}>${s}</option>`).join('')}
             <option value="Declined" ${c?.current_stage === 'Declined' ? 'selected' : ''}>Declined</option>
           </select>
+          <span class="field-error" id="err-stage"></span>
         </div>
         <div class="form-group">
-          <label for="pf-status">Stage Status</label>
+          <label class="form-required" for="pf-status">Stage Status</label>
           <select id="pf-status">
             ${STATUSES.map(s => `<option value="${s}" ${c?.stage_status === s ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
+          <span class="field-error" id="err-status"></span>
         </div>
       </div>
       <div id="screening-section">
@@ -508,11 +678,11 @@ function renderPanelForm(c) {
         <div class="form-row">
           <div class="form-group">
             <label for="pf-screened1">Screened By #1</label>
-            <input type="text" id="pf-screened1" placeholder="e.g. Priya Mehta" value="${esc(c?.screened_by_1 || '')}">
+            <input type="text" id="pf-screened1" placeholder="e.g. Priya Mehta" value="${esc(c?.screened_by_1 || '')}" maxlength="100">
           </div>
           <div class="form-group">
             <label for="pf-screened2">Screened By #2</label>
-            <input type="text" id="pf-screened2" placeholder="e.g. Ravi Kumar" value="${esc(c?.screened_by_2 || '')}">
+            <input type="text" id="pf-screened2" placeholder="e.g. Ravi Kumar" value="${esc(c?.screened_by_2 || '')}" maxlength="100">
           </div>
         </div>
       </div>
@@ -521,21 +691,23 @@ function renderPanelForm(c) {
         <div class="form-row">
           <div class="form-group">
             <label for="pf-interviewer1">Interviewer #1</label>
-            <input type="text" id="pf-interviewer1" placeholder="e.g. Amit Shah" value="${esc(c?.interviewed_by_1 || '')}">
+            <input type="text" id="pf-interviewer1" placeholder="e.g. Amit Shah" value="${esc(c?.interviewed_by_1 || '')}" maxlength="100">
           </div>
           <div class="form-group">
             <label for="pf-interviewer2">Interviewer #2</label>
-            <input type="text" id="pf-interviewer2" placeholder="e.g. Sneha Rao" value="${esc(c?.interviewed_by_2 || '')}">
+            <input type="text" id="pf-interviewer2" placeholder="e.g. Sneha Rao" value="${esc(c?.interviewed_by_2 || '')}" maxlength="100">
           </div>
         </div>
       </div>
       <div class="form-group">
-        <label for="pf-date">Date</label>
-        <input type="date" id="pf-date" value="${c?.date || ''}">
+        <label class="form-required" for="pf-date">Date</label>
+        <input type="date" id="pf-date" value="${c?.date || ''}" max="${new Date().toISOString().split('T')[0]}">
+        <span class="field-error" id="err-date"></span>
       </div>
       <div class="form-group">
-        <label for="pf-notes">Notes</label>
-        <textarea id="pf-notes" placeholder="Quick note about this candidate…">${esc(c?.notes || '')}</textarea>
+        <label for="pf-notes">Notes <span style="color:var(--text-muted);font-weight:400;">(max 500 chars)</span></label>
+        <textarea id="pf-notes" placeholder="Quick note about this candidate…" maxlength="500">${esc(c?.notes || '')}</textarea>
+        <span class="field-error" id="err-notes"></span>
       </div>
 
       ${isEdit ? `
@@ -547,7 +719,7 @@ function renderPanelForm(c) {
         </div>
 
         <div class="add-note-row">
-          <input type="text" id="add-note-input" placeholder="Add a timestamped note…">
+          <input type="text" id="add-note-input" placeholder="Add a timestamped note…" maxlength="500">
           <button type="button" class="btn btn-secondary btn-sm" id="btn-add-note">Add</button>
         </div>
 
@@ -571,12 +743,9 @@ function renderPanelForm(c) {
     if (addNoteBtn) addNoteBtn.addEventListener('click', () => handleAddNote(c));
   }
 
-  // Toggle screening/interview sections based on stage
   togglePanelSections();
   const stageSelect = $('#pf-stage');
-  if (stageSelect) {
-    stageSelect.addEventListener('change', togglePanelSections);
-  }
+  if (stageSelect) stageSelect.addEventListener('change', togglePanelSections);
 }
 
 function togglePanelSections() {
@@ -584,12 +753,8 @@ function togglePanelSections() {
   const screeningSection = $('#screening-section');
   const interviewSection = $('#interview-section');
 
-  if (screeningSection) {
-    screeningSection.style.display = (stage === 'Internal Screen') ? 'block' : 'none';
-  }
-  if (interviewSection) {
-    interviewSection.style.display = (['Round 1', 'Round 2', 'Round 3'].includes(stage)) ? 'block' : 'none';
-  }
+  if (screeningSection) screeningSection.style.display = (stage === 'Internal Screen') ? 'block' : 'none';
+  if (interviewSection) interviewSection.style.display = (['Round 1', 'Round 2', 'Round 3'].includes(stage)) ? 'block' : 'none';
 }
 
 function renderHistoryTimeline(history) {
@@ -634,35 +799,96 @@ function closePanel() {
 }
 
 // =========================================
+// INPUT VALIDATION (§4)
+// =========================================
+function sanitize(str) {
+  if (!str) return '';
+  return str.trim().replace(/<[^>]*>/g, '');
+}
+
+function validateCandidateForm() {
+  let valid = true;
+
+  // Clear all errors
+  $$('.field-error').forEach(el => el.textContent = '');
+
+  const name = sanitize($('#pf-name')?.value);
+  const role = sanitize($('#pf-role')?.value);
+  const client = sanitize($('#pf-client')?.value);
+  const stage = $('#pf-stage')?.value;
+  const status = $('#pf-status')?.value;
+  const date = $('#pf-date')?.value;
+  const notes = sanitize($('#pf-notes')?.value);
+
+  if (!name || name.length < 2) {
+    $('#err-name').textContent = 'Full Name is required (min 2 characters)';
+    valid = false;
+  }
+  if (!role) {
+    $('#err-role').textContent = 'Role is required';
+    valid = false;
+  }
+  if (!client) {
+    $('#err-client').textContent = 'Client is required';
+    valid = false;
+  }
+  if (!stage || (![...STAGES, 'Declined'].includes(stage))) {
+    $('#err-stage').textContent = 'A valid stage is required';
+    valid = false;
+  }
+  if (!status || !STATUSES.includes(status)) {
+    $('#err-status').textContent = 'A valid status is required';
+    valid = false;
+  }
+  if (!date) {
+    $('#err-date').textContent = 'Date is required';
+    valid = false;
+  } else {
+    const d = new Date(date);
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (isNaN(d.getTime())) {
+      $('#err-date').textContent = 'Invalid date';
+      valid = false;
+    } else if (d > today) {
+      $('#err-date').textContent = 'Date cannot be in the future';
+      valid = false;
+    }
+  }
+  if (notes && notes.length > 500) {
+    $('#err-notes').textContent = 'Notes cannot exceed 500 characters';
+    valid = false;
+  }
+
+  return valid;
+}
+
+// =========================================
 // PANEL ACTIONS
 // =========================================
 async function handleSave() {
-  const name = $('#pf-name')?.value?.trim();
-  if (!name) {
-    toast('Full Name is required', 'error');
-    return;
-  }
+  if (!requireAuth()) return;
+  if (!validateCandidateForm()) return;
 
   const record = {
-    full_name: name,
-    location: $('#pf-location')?.value?.trim() || null,
-    role: $('#pf-role')?.value?.trim() || null,
-    client: $('#pf-client')?.value?.trim() || null,
+    full_name: sanitize($('#pf-name')?.value),
+    location: sanitize($('#pf-location')?.value) || null,
+    role: sanitize($('#pf-role')?.value),
+    client: sanitize($('#pf-client')?.value),
     current_stage: $('#pf-stage')?.value || 'Internal Screen',
     stage_status: $('#pf-status')?.value || 'Pending',
-    screened_by_1: $('#pf-screened1')?.value?.trim() || null,
-    screened_by_2: $('#pf-screened2')?.value?.trim() || null,
-    interviewed_by_1: $('#pf-interviewer1')?.value?.trim() || null,
-    interviewed_by_2: $('#pf-interviewer2')?.value?.trim() || null,
+    screened_by_1: sanitize($('#pf-screened1')?.value) || null,
+    screened_by_2: sanitize($('#pf-screened2')?.value) || null,
+    interviewed_by_1: sanitize($('#pf-interviewer1')?.value) || null,
+    interviewed_by_2: sanitize($('#pf-interviewer2')?.value) || null,
     date: $('#pf-date')?.value || null,
-    notes: $('#pf-notes')?.value?.trim() || null,
+    notes: sanitize($('#pf-notes')?.value) || null,
   };
 
   dom.panelSave.disabled = true;
   dom.panelSave.innerHTML = '<span class="loading-spinner"></span>';
 
   if (state.editingCandidate) {
-    // Check if stage/status changed
     const old = state.editingCandidate;
     const stageChanged = old.current_stage !== record.current_stage;
     const statusChanged = old.stage_status !== record.stage_status;
@@ -682,39 +908,25 @@ async function handleSave() {
   } else {
     const result = await insertCandidate(record);
     if (result) {
-      toast('Candidate added', 'success');
+      toast('Candidate saved', 'success');
     }
   }
 
   dom.panelSave.disabled = false;
   dom.panelSave.innerHTML = 'Save';
   closePanel();
-  await loadCandidates();
+  await loadCandidates(); // Refetch after mutation (§9c)
 }
 
 async function handleAdvance(candidate) {
+  if (!requireAuth()) return;
   const idx = STAGES.indexOf(candidate.current_stage);
   if (idx < 0 || idx >= STAGES.length - 1) return;
 
   const nextStage = STAGES[idx + 1];
-
-  // Mark current as Cleared
-  await updateCandidate(candidate.id, {
-    current_stage: nextStage,
-    stage_status: 'Pending',
-  });
-  await insertHistory({
-    candidate_id: candidate.id,
-    stage: candidate.current_stage,
-    status: 'Cleared',
-    note: `Cleared — moved to ${nextStage}`,
-  });
-  await insertHistory({
-    candidate_id: candidate.id,
-    stage: nextStage,
-    status: 'Pending',
-    note: null,
-  });
+  await updateCandidate(candidate.id, { current_stage: nextStage, stage_status: 'Pending' });
+  await insertHistory({ candidate_id: candidate.id, stage: candidate.current_stage, status: 'Cleared', note: `Cleared — moved to ${nextStage}` });
+  await insertHistory({ candidate_id: candidate.id, stage: nextStage, status: 'Pending', note: null });
 
   toast(`Moved to ${nextStage}`, 'success');
   closePanel();
@@ -722,40 +934,29 @@ async function handleAdvance(candidate) {
 }
 
 async function handleReject(candidate) {
+  if (!requireAuth()) return;
   await updateCandidate(candidate.id, { stage_status: 'Rejected' });
-  await insertHistory({
-    candidate_id: candidate.id,
-    stage: candidate.current_stage,
-    status: 'Rejected',
-    note: 'Candidate rejected',
-  });
+  await insertHistory({ candidate_id: candidate.id, stage: candidate.current_stage, status: 'Rejected', note: 'Candidate rejected' });
   toast('Candidate rejected', 'info');
   closePanel();
   await loadCandidates();
 }
 
 async function handleDecline(candidate) {
-  await updateCandidate(candidate.id, {
-    current_stage: 'Declined',
-    stage_status: 'Rejected',
-  });
-  await insertHistory({
-    candidate_id: candidate.id,
-    stage: 'Declined',
-    status: 'Rejected',
-    note: 'Candidate declined the offer',
-  });
+  if (!requireAuth()) return;
+  await updateCandidate(candidate.id, { current_stage: 'Declined', stage_status: 'Rejected' });
+  await insertHistory({ candidate_id: candidate.id, stage: 'Declined', status: 'Rejected', note: 'Candidate declined the offer' });
   toast('Candidate marked as declined', 'info');
   closePanel();
   await loadCandidates();
 }
 
 function handleDelete(candidate) {
+  if (!requireAuth()) return;
   dom.confirmTitle.textContent = 'Delete Candidate';
   dom.confirmMessage.textContent = `Permanently delete ${candidate.full_name}? This action cannot be undone.`;
   dom.confirmOverlay.classList.add('open');
 
-  // Detach old + attach new
   const newYes = dom.confirmYes.cloneNode(true);
   dom.confirmYes.parentNode.replaceChild(newYes, dom.confirmYes);
   dom.confirmYes = newYes;
@@ -780,11 +981,11 @@ function handleDelete(candidate) {
 }
 
 async function handleAddNote(candidate) {
+  if (!requireAuth()) return;
   const input = $('#add-note-input');
-  const note = input?.value?.trim();
+  const note = sanitize(input?.value);
   if (!note) return;
 
-  // Append to candidate notes
   const existingNotes = candidate.notes || '';
   const timestamp = new Date().toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   const updatedNotes = existingNotes
@@ -792,17 +993,9 @@ async function handleAddNote(candidate) {
     : `[${timestamp}] ${note}`;
 
   await updateCandidate(candidate.id, { notes: updatedNotes });
-  await insertHistory({
-    candidate_id: candidate.id,
-    stage: candidate.current_stage,
-    status: candidate.stage_status,
-    note: note,
-  });
+  await insertHistory({ candidate_id: candidate.id, stage: candidate.current_stage, status: candidate.stage_status, note });
 
   toast('Note added', 'success');
-  input.value = '';
-
-  // Refresh panel
   state.history = await loadHistory(candidate.id);
   candidate.notes = updatedNotes;
   state.editingCandidate = candidate;
@@ -824,27 +1017,19 @@ function exportCSV() {
 
   rows.forEach(c => {
     csvRows.push([
-      csvEscape(c.full_name),
-      csvEscape(c.location),
-      csvEscape(c.role),
-      csvEscape(c.client),
-      csvEscape(c.current_stage),
-      csvEscape(c.stage_status),
-      csvEscape(c.screened_by_1),
-      csvEscape(c.screened_by_2),
-      csvEscape(c.interviewed_by_1),
-      csvEscape(c.interviewed_by_2),
-      csvEscape(c.date),
-      csvEscape(c.notes),
+      csvEscape(c.full_name), csvEscape(c.location), csvEscape(c.role), csvEscape(c.client),
+      csvEscape(c.current_stage), csvEscape(c.stage_status),
+      csvEscape(c.screened_by_1), csvEscape(c.screened_by_2),
+      csvEscape(c.interviewed_by_1), csvEscape(c.interviewed_by_2),
+      csvEscape(c.date), csvEscape(c.notes),
     ].join(','));
   });
 
   const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const today = new Date().toISOString().split('T')[0];
   a.href = url;
-  a.download = `pipeline-${today}.csv`;
+  a.download = `pipeline-${new Date().toISOString().split('T')[0]}.csv`;
   a.click();
   URL.revokeObjectURL(url);
   toast(`Exported ${rows.length} candidates`, 'success');
@@ -863,25 +1048,17 @@ function csvEscape(val) {
 // EVENTS
 // =========================================
 function bindGlobalEvents() {
-  // Setup
-  dom.setupConnect.addEventListener('click', () => {
-    const url = dom.setupUrl.value.trim();
-    const key = dom.setupKey.value.trim();
-    if (!url || !key) {
-      showSetupError('Both fields are required.');
-      return;
-    }
-    if (!url.startsWith('https://')) {
-      showSetupError('URL must start with https://');
-      return;
-    }
-    initSupabase(url, key);
-  });
+  // Login
+  dom.loginSubmit.addEventListener('click', handleLogin);
+  dom.loginEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
+  dom.loginClose.addEventListener('click', hideLogin);
+  dom.loginScreen.addEventListener('click', (e) => { if (e.target === dom.loginScreen) hideLogin(); });
 
-  // Allow enter on setup
-  dom.setupKey.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') dom.setupConnect.click();
-  });
+  // Sign In button (header)
+  dom.btnSignIn.addEventListener('click', showLogin);
+
+  // Logout
+  dom.btnLogout.addEventListener('click', handleLogout);
 
   // Add candidate
   dom.btnAdd.addEventListener('click', openAddPanel);
@@ -889,21 +1066,18 @@ function bindGlobalEvents() {
   // Export
   dom.btnExport.addEventListener('click', exportCSV);
 
-  // Settings
-  dom.btnSettings.addEventListener('click', (e) => {
-    e.stopPropagation();
-    dom.settingsMenu.classList.toggle('open');
+  // Activity Log
+  dom.btnActivity.addEventListener('click', () => {
+    const section = dom.activitySection;
+    if (section.style.display === 'none') {
+      section.style.display = 'block';
+      loadAuditLog();
+    } else {
+      section.style.display = 'none';
+    }
   });
-  document.addEventListener('click', () => dom.settingsMenu.classList.remove('open'));
-
-  dom.btnResetCreds.addEventListener('click', () => {
-    localStorage.removeItem(LS_URL_KEY);
-    localStorage.removeItem(LS_KEY_KEY);
-    state.db = null;
-    state.candidates = [];
-    showSetupScreen();
-    dom.settingsMenu.classList.remove('open');
-    toast('Credentials cleared', 'info');
+  dom.btnCloseActivity.addEventListener('click', () => {
+    dom.activitySection.style.display = 'none';
   });
 
   // Panel close
@@ -912,7 +1086,7 @@ function bindGlobalEvents() {
   dom.panelOverlay.addEventListener('click', closePanel);
   dom.panelSave.addEventListener('click', handleSave);
 
-  // Filters
+  // Filters — debounced search (§9b) and local dropdown filters
   let searchDebounce;
   dom.filterSearch.addEventListener('input', () => {
     clearTimeout(searchDebounce);
@@ -921,7 +1095,7 @@ function bindGlobalEvents() {
       state.dashboardStageFilter = null;
       applyFilters();
       renderDashboard();
-    }, 250);
+    }, 300);
   });
 
   dom.filterClient.addEventListener('change', () => {
@@ -949,23 +1123,14 @@ function bindGlobalEvents() {
 
   // Pagination
   dom.btnPrev.addEventListener('click', () => {
-    if (state.currentPage > 1) {
-      state.currentPage--;
-      renderTable();
-      renderPagination();
-    }
+    if (state.currentPage > 1) { state.currentPage--; renderTable(); renderPagination(); }
   });
-
   dom.btnNext.addEventListener('click', () => {
     const totalPages = Math.ceil(state.filteredCandidates.length / PAGE_SIZE);
-    if (state.currentPage < totalPages) {
-      state.currentPage++;
-      renderTable();
-      renderPagination();
-    }
+    if (state.currentPage < totalPages) { state.currentPage++; renderTable(); renderPagination(); }
   });
 
-  // Keyboard: Escape to close panel
+  // Keyboard: Escape to close
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       if (dom.confirmOverlay.classList.contains('open')) {
@@ -980,6 +1145,9 @@ function bindGlobalEvents() {
 // =========================================
 // UTILITIES
 // =========================================
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
+
 function esc(str) {
   if (!str) return '';
   const d = document.createElement('div');
@@ -992,9 +1160,7 @@ function formatDate(dateStr) {
   try {
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-  } catch {
-    return dateStr;
-  }
+  } catch { return dateStr; }
 }
 
 function formatTimestamp(ts) {
@@ -1002,9 +1168,7 @@ function formatTimestamp(ts) {
   try {
     const d = new Date(ts);
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return ts;
-  }
+  } catch { return ts; }
 }
 
 function toast(message, type = 'info') {

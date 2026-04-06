@@ -1,0 +1,17 @@
+# Vercel
+.vercel
+
+# Node
+node_modules
+
+# Vite
+.vite
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea
+.vscode
+*.swp

@@ -5,56 +5,82 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hiring Pipeline — Track Every Candidate</title>
   <meta name="description" content="A single-screen hiring pipeline tracker. See every candidate's stage, status, and history at a glance.">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=5">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎯</text></svg>">
 </head>
 <body>
 
-  <!-- ========== SETUP SCREEN (hidden — credentials are built-in) ========== -->
-  <div id="setup-screen" class="panel-overlay">
+  <!-- ========== RED TOP BAR ========== -->
+  <div class="cc-topbar"></div>
+
+  <!-- ========== PRIMARY NAVBAR ========== -->
+  <nav class="cc-navbar" id="cc-navbar">
+    <div class="cc-navbar-left">
+      <div class="cc-mark">
+        <svg viewBox="0 0 16 16" fill="none" width="16" height="16">
+          <rect x="2" y="2" width="5" height="12" fill="white" rx="1"/>
+          <rect x="9" y="2" width="5" height="5" fill="white" rx="1"/>
+          <rect x="9" y="9" width="5" height="5" fill="white" rx="1"/>
+        </svg>
+      </div>
+      <div class="cc-brand-text">
+        <span class="cc-brand-top">Computacenter</span>
+        <span class="cc-brand-bottom">Agree<span class="cc-ya">Ya</span></span>
+      </div>
+      <div class="cc-divider"></div>
+      <span class="cc-app-name">Hiring Pipeline</span>
+    </div>
+    <div class="cc-navbar-right">
+      <span class="cc-internal-label">Internal tool</span>
+      <div class="cc-user-area" id="cc-user-area" style="display:none;">
+        <div class="cc-avatar" id="cc-avatar"></div>
+        <span class="cc-username" id="cc-username"></span>
+        <button class="cc-signout" id="btn-logout">Sign out</button>
+      </div>
+      <button class="cc-signin-btn" id="btn-signin">Sign in</button>
+    </div>
+  </nav>
+
+  <!-- ========== LOGIN OVERLAY (hidden by default) ========== -->
+  <div id="login-screen" class="hidden">
     <div class="setup-card">
-      <div class="setup-icon">🔗</div>
-      <h1>Connect Supabase</h1>
-      <p>Paste your Supabase project credentials to get started. These are stored only in your browser.</p>
+      <div class="setup-icon">🔐</div>
+      <h1>Hiring Pipeline</h1>
+      <p>Enter your work email to receive a sign-in link.</p>
       <div class="form-group">
-        <label for="setup-url">Project URL</label>
-        <input type="url" id="setup-url" placeholder="https://xxxxx.supabase.co">
+        <label for="login-email">Work Email</label>
+        <input type="email" id="login-email" placeholder="you@agreeya.com" autocomplete="email">
       </div>
-      <div class="form-group">
-        <label for="setup-key">Anon Key</label>
-        <input type="text" id="setup-key" placeholder="eyJhbGciOiJIUzI1NiIs...">
-      </div>
-      <div class="setup-error" id="setup-error"></div>
-      <button class="btn btn-primary" id="setup-connect" style="width:100%; justify-content:center; margin-top:8px;">
-        Connect & Launch
+      <div class="setup-error" id="login-error"></div>
+      <div class="login-success" id="login-success"></div>
+      <button class="btn btn-primary" id="login-submit" style="width:100%; justify-content:center; margin-top:8px;">
+        Send Magic Link
       </button>
+      <p class="login-hint">Only approved team members can sign in.</p>
+      <button class="btn-icon login-close" id="login-close" title="Close">✕</button>
     </div>
   </div>
 
-  <!-- ========== MAIN APP ========== -->
+  <!-- ========== MAIN APP (hidden until authenticated) ========== -->
   <div id="app">
 
-    <!-- Header -->
-    <header class="app-header">
-      <div class="app-header-left">
-        <h1>🎯 Hiring Pipeline</h1>
-        <p>Track every candidate from screen to offer</p>
+    <!-- Toolbar -->
+    <div class="app-toolbar">
+      <div class="app-toolbar-left">
+        <span class="toolbar-greeting" id="user-greeting">Track every candidate from screen to offer</span>
       </div>
-      <div class="app-header-right">
+      <div class="app-toolbar-right">
+        <button class="btn btn-secondary btn-sm" id="btn-activity" title="Activity Log">
+          📋 Activity Log
+        </button>
         <button class="btn btn-secondary btn-sm" id="btn-export" title="Export filtered data to CSV">
           📥 Export CSV
         </button>
         <button class="btn btn-primary btn-sm" id="btn-add">
           ＋ Add Candidate
         </button>
-        <div class="settings-dropdown">
-          <button class="btn-icon" id="btn-settings" title="Settings">⚙️</button>
-          <div class="settings-menu" id="settings-menu">
-            <button id="btn-reset-creds" class="danger">🔓 Reset Credentials</button>
-          </div>
-        </div>
       </div>
-    </header>
+    </div>
 
     <!-- Dashboard Strip -->
     <section class="dashboard-strip" id="dashboard-strip">
@@ -110,6 +136,17 @@
       <button class="btn btn-secondary btn-sm" id="btn-next">Next →</button>
     </div>
 
+    <!-- Activity Log Section (hidden by default) -->
+    <section class="activity-log-section" id="activity-log-section" style="display:none;">
+      <div class="activity-log-header">
+        <h2>📋 Activity Log</h2>
+        <button class="btn btn-ghost btn-sm" id="btn-close-activity">✕ Close</button>
+      </div>
+      <div class="activity-log-body" id="activity-log-body">
+        <!-- Rows injected by JS -->
+      </div>
+    </section>
+
   </div>
 
   <!-- ========== PANEL OVERLAY ========== -->
@@ -142,11 +179,11 @@
     </div>
   </div>
 
-  <!-- ========== TOAST CONTAINER ========== -->
+  <!-- ========== TOAST CONTAINER (top-right) ========== -->
   <div class="toast-container" id="toast-container"></div>
 
   <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=5"></script>
 </body>
 </html>
