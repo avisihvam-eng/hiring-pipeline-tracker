@@ -16,8 +16,6 @@ An internal hiring pipeline tracker for the recruiting team at **Computacenter �
 - **Filters & search** — Filter by client, stage, status, or free-text search (debounced, local)
 - **CSV export** — Export filtered candidate data to CSV
 - **Activity log** — See who did what, when (last 50 actions)
-- **Magic Link auth** — Optional sign-in via email for write access (read access is public)
-- **Audit trail** — Every add/update/delete is logged with the user's email
 
 ---
 
@@ -28,7 +26,6 @@ An internal hiring pipeline tracker for the recruiting team at **Computacenter �
 | Frontend | Vanilla HTML + CSS + JS (no build step) |
 | Backend | [Supabase](https://supabase.com) (Postgres + Auth + RLS) |
 | Hosting | [Vercel](https://vercel.com) (free tier) |
-| Auth | Supabase Magic Link (email OTP) |
 | Fonts | [Inter](https://fonts.google.com/specimen/Inter) via Google Fonts |
 
 **No React. No Node. No bundler. No npm packages in production.**
@@ -71,20 +68,7 @@ No `npm install` needed. It's a static site.
 3. Paste the entire contents of `supabase-setup.sql` and click **Run**
 4. Update the `SUPABASE_URL` and `SUPABASE_KEY` constants in `app.js` with your project's anon key
 
-### 3. Enable Authentication (Optional)
-
-If you want Magic Link sign-in for write access:
-
-1. **Supabase Dashboard → Authentication → Providers → Email** → Enable
-2. **Authentication → URL Configuration** → Add your Vercel URL as a Redirect URL
-3. Insert approved emails into the `allowed_users` table:
-   ```sql
-   INSERT INTO allowed_users (email) VALUES
-     ('user1@company.com'),
-     ('user2@company.com');
-   ```
-
-### 4. Verify
+### 3. Verify
 
 - Visit your Vercel URL — the dashboard should load with data
 - Hit `/api/health` — should return `{"status":"ok"}`
@@ -145,11 +129,7 @@ If you want Magic Link sign-in for write access:
 
 ### Row-Level Security (RLS)
 
-All tables have RLS enabled:
-- **Read (SELECT)**: Open to both `anon` and `authenticated` users (the dashboard is publicly readable)
-- **Write (INSERT/UPDATE/DELETE)**: Restricted to `authenticated` users only
-- **Audit log**: Authenticated users can SELECT and INSERT (no update/delete)
-- The `service_role` key is **never** used in the frontend
+All tables have RLS enabled with simple public access. Open to both `anon` and `authenticated` users (the dashboard is publicly readable and writable).
 
 ### HTTP Security Headers (vercel.json)
 

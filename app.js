@@ -37,12 +37,7 @@ let dom = {};
 // =========================================
 document.addEventListener('DOMContentLoaded', () => {
   dom = {
-    loginScreen: $('#login-screen'),
-    loginEmail: $('#login-email'),
-    loginSubmit: $('#login-submit'),
-    loginError: $('#login-error'),
-    loginSuccess: $('#login-success'),
-    loginClose: $('#login-close'),
+    loginScreen: $('#login-screen'), // Will be removed in index.html, leaving null
     app: $('#app'),
     userGreeting: $('#user-greeting'),
     dashboardStrip: $('#dashboard-strip'),
@@ -60,11 +55,6 @@ document.addEventListener('DOMContentLoaded', () => {
     btnAdd: $('#btn-add'),
     btnExport: $('#btn-export'),
     btnActivity: $('#btn-activity'),
-    btnLogout: $('#btn-logout'),
-    btnSignIn: $('#btn-signin'),
-    ccUserArea: $('#cc-user-area'),
-    ccAvatar: $('#cc-avatar'),
-    ccUsername: $('#cc-username'),
     activitySection: $('#activity-log-section'),
     activityBody: $('#activity-log-body'),
     btnCloseActivity: $('#btn-close-activity'),
@@ -84,159 +74,17 @@ document.addEventListener('DOMContentLoaded', () => {
     toastContainer: $('#toast-container'),
   };
 
-  // Listen for auth state changes (§1, §5)
-  db.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-      state.user = session.user;
-      updateAuthUI();
-      loadCandidates(); // Reload with auth context
-    } else if (event === 'SIGNED_OUT') {
-      state.user = null;
-      updateAuthUI();
-    }
-  });
-
-  // Always show the app immediately — login is optional
-  checkSession();
+  // Always show the app immediately — login is removed
+  showApp();
   bindGlobalEvents();
 });
 
-async function checkSession() {
-  try {
-    const { data: { session } } = await db.auth.getSession();
-    if (session) {
-      state.user = session.user;
-    }
-  } catch { /* ignore */ }
-  // Always show the app — data is publicly readable
-  showApp();
-}
-
-function showLogin() {
-  dom.loginScreen.classList.remove('hidden');
-}
-
-function hideLogin() {
-  dom.loginScreen.classList.add('hidden');
-}
-
 function showApp() {
-  dom.loginScreen.classList.add('hidden');
   dom.app.classList.add('visible');
-  updateAuthUI();
   loadCandidates();
 }
 
-function updateAuthUI() {
-  if (state.user) {
-    const email = state.user.email || '';
-    const initials = email.split('@')[0].substring(0, 2).toUpperCase();
-    dom.userGreeting.textContent = `Signed in as ${email}`;
-    dom.btnSignIn.style.display = 'none';
-    dom.ccUserArea.style.display = 'flex';
-    dom.ccAvatar.textContent = initials;
-    dom.ccUsername.textContent = email.split('@')[0];
-  } else {
-    dom.userGreeting.textContent = 'Track every candidate from screen to offer';
-    dom.btnSignIn.style.display = '';
-    dom.ccUserArea.style.display = 'none';
-    dom.ccAvatar.textContent = '';
-    dom.ccUsername.textContent = '';
-  }
-}
 
-function requireAuth() {
-  if (state.user) return true;
-  toast('Please sign in to make changes', 'info');
-  showLogin();
-  return false;
-}
-
-// =========================================
-// AUTH — Magic Link (§1)
-// =========================================
-async function handleLogin() {
-  const email = dom.loginEmail.value.trim().toLowerCase();
-  hideLoginMessages();
-
-  if (!email || !email.includes('@')) {
-    showLoginError('Please enter a valid email address.');
-    return;
-  }
-
-  // Rate limit check (§7)
-  const now = Date.now();
-  if (now < rateLimit.resetAt && rateLimit.attempts >= 3) {
-    const secsLeft = Math.ceil((rateLimit.resetAt - now) / 1000);
-    showLoginError(`Too many attempts. Please wait ${secsLeft} seconds.`);
-    return;
-  }
-  if (now >= rateLimit.resetAt) {
-    rateLimit.attempts = 0;
-    rateLimit.resetAt = now + 60000;
-  }
-  rateLimit.attempts++;
-
-  // Check whitelist
-  try {
-    const { data, error } = await db.from('allowed_users').select('email').eq('email', email).maybeSingle();
-    if (error || !data) {
-      showLoginError('This email is not authorized. Contact your admin.');
-      return;
-    }
-  } catch {
-    showLoginError('Something went wrong. Please try again.');
-    return;
-  }
-
-  // Send magic link
-  dom.loginSubmit.disabled = true;
-  dom.loginSubmit.innerHTML = '<span class="loading-spinner"></span>';
-
-  try {
-    const { error } = await db.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: window.location.origin }
-    });
-
-    if (error) {
-      showLoginError('Could not send the sign-in link. Please try again.');
-    } else {
-      showLoginSuccess('✓ Magic link sent! Check your inbox.');
-    }
-  } catch {
-    showLoginError('Something went wrong. Please try again.');
-  }
-
-  dom.loginSubmit.disabled = false;
-  dom.loginSubmit.textContent = 'Send Magic Link';
-}
-
-async function handleLogout() {
-  try {
-    await db.auth.signOut();
-  } catch { /* ignore */ }
-  state.user = null;
-  updateAuthUI();
-  toast('Logged out', 'info');
-}
-
-function showLoginError(msg) {
-  dom.loginError.textContent = msg;
-  dom.loginError.classList.add('visible');
-}
-
-function showLoginSuccess(msg) {
-  dom.loginSuccess.textContent = msg;
-  dom.loginSuccess.classList.add('visible');
-}
-
-function hideLoginMessages() {
-  dom.loginError.textContent = '';
-  dom.loginError.classList.remove('visible');
-  dom.loginSuccess.textContent = '';
-  dom.loginSuccess.classList.remove('visible');
-}
 
 // =========================================
 // SUPABASE DATA (§5 — all wrapped in try/catch)
@@ -349,7 +197,7 @@ async function insertHistory(entry) {
 async function logAudit(action, candidateName) {
   try {
     await db.from('audit_log').insert([{
-      user_email: state.user?.email || 'unknown',
+      user_email: 'anonymous',
       action,
       candidate_name: candidateName,
     }]);
@@ -867,7 +715,6 @@ function validateCandidateForm() {
 // PANEL ACTIONS
 // =========================================
 async function handleSave() {
-  if (!requireAuth()) return;
   if (!validateCandidateForm()) return;
 
   const record = {
@@ -919,7 +766,6 @@ async function handleSave() {
 }
 
 async function handleAdvance(candidate) {
-  if (!requireAuth()) return;
   const idx = STAGES.indexOf(candidate.current_stage);
   if (idx < 0 || idx >= STAGES.length - 1) return;
 
@@ -934,7 +780,6 @@ async function handleAdvance(candidate) {
 }
 
 async function handleReject(candidate) {
-  if (!requireAuth()) return;
   await updateCandidate(candidate.id, { stage_status: 'Rejected' });
   await insertHistory({ candidate_id: candidate.id, stage: candidate.current_stage, status: 'Rejected', note: 'Candidate rejected' });
   toast('Candidate rejected', 'info');
@@ -943,7 +788,6 @@ async function handleReject(candidate) {
 }
 
 async function handleDecline(candidate) {
-  if (!requireAuth()) return;
   await updateCandidate(candidate.id, { current_stage: 'Declined', stage_status: 'Rejected' });
   await insertHistory({ candidate_id: candidate.id, stage: 'Declined', status: 'Rejected', note: 'Candidate declined the offer' });
   toast('Candidate marked as declined', 'info');
@@ -952,7 +796,6 @@ async function handleDecline(candidate) {
 }
 
 function handleDelete(candidate) {
-  if (!requireAuth()) return;
   dom.confirmTitle.textContent = 'Delete Candidate';
   dom.confirmMessage.textContent = `Permanently delete ${candidate.full_name}? This action cannot be undone.`;
   dom.confirmOverlay.classList.add('open');
@@ -981,7 +824,6 @@ function handleDelete(candidate) {
 }
 
 async function handleAddNote(candidate) {
-  if (!requireAuth()) return;
   const input = $('#add-note-input');
   const note = sanitize(input?.value);
   if (!note) return;
@@ -1048,18 +890,6 @@ function csvEscape(val) {
 // EVENTS
 // =========================================
 function bindGlobalEvents() {
-  // Login
-  dom.loginSubmit.addEventListener('click', handleLogin);
-  dom.loginEmail.addEventListener('keydown', (e) => { if (e.key === 'Enter') handleLogin(); });
-  dom.loginClose.addEventListener('click', hideLogin);
-  dom.loginScreen.addEventListener('click', (e) => { if (e.target === dom.loginScreen) hideLogin(); });
-
-  // Sign In button (header)
-  dom.btnSignIn.addEventListener('click', showLogin);
-
-  // Logout
-  dom.btnLogout.addEventListener('click', handleLogout);
-
   // Add candidate
   dom.btnAdd.addEventListener('click', openAddPanel);
 

@@ -81,46 +81,19 @@ do $$
 begin
   drop policy if exists "Allow all on hiring_pipeline" on hiring_pipeline;
   drop policy if exists "Allow all on pipeline_history" on pipeline_history;
+  drop policy if exists "auth_select_hiring_pipeline" on hiring_pipeline;
+  drop policy if exists "auth_insert_hiring_pipeline" on hiring_pipeline;
+  drop policy if exists "auth_update_hiring_pipeline" on hiring_pipeline;
+  drop policy if exists "auth_delete_hiring_pipeline" on hiring_pipeline;
+  drop policy if exists "anon_select_hiring_pipeline" on hiring_pipeline;
 end $$;
 
--- 7. Create authenticated-only policies
+-- 7. Create permissive policies for public access (No Auth Required)
+create policy "Allow all on hiring_pipeline" on hiring_pipeline
+  for all using (true) with check (true);
 
--- hiring_pipeline: full CRUD for authenticated users
-create policy "auth_select_hiring_pipeline" on hiring_pipeline
-  for select to authenticated using (true);
-create policy "auth_insert_hiring_pipeline" on hiring_pipeline
-  for insert to authenticated with check (true);
-create policy "auth_update_hiring_pipeline" on hiring_pipeline
-  for update to authenticated using (true) with check (true);
-create policy "auth_delete_hiring_pipeline" on hiring_pipeline
-  for delete to authenticated using (true);
+create policy "Allow all on pipeline_history" on pipeline_history
+  for all using (true) with check (true);
 
--- hiring_pipeline: read-only for anonymous visitors
-create policy "anon_select_hiring_pipeline" on hiring_pipeline
-  for select to anon using (true);
-
--- pipeline_history: full CRUD for authenticated users
-create policy "auth_select_pipeline_history" on pipeline_history
-  for select to authenticated using (true);
-create policy "auth_insert_pipeline_history" on pipeline_history
-  for insert to authenticated with check (true);
-create policy "auth_update_pipeline_history" on pipeline_history
-  for update to authenticated using (true) with check (true);
-create policy "auth_delete_pipeline_history" on pipeline_history
-  for delete to authenticated using (true);
-
--- pipeline_history: read-only for anonymous visitors
-create policy "anon_select_pipeline_history" on pipeline_history
-  for select to anon using (true);
-
--- audit_log: SELECT and INSERT only for authenticated users
-create policy "auth_select_audit_log" on audit_log
-  for select to authenticated using (true);
-create policy "auth_insert_audit_log" on audit_log
-  for insert to authenticated with check (true);
-
--- allowed_users: SELECT for anon (needed for login check) and authenticated
-create policy "anon_select_allowed_users" on allowed_users
-  for select to anon using (true);
-create policy "auth_select_allowed_users" on allowed_users
-  for select to authenticated using (true);
+create policy "Allow all on audit_log" on audit_log
+  for all using (true) with check (true);
